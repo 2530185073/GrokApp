@@ -1,0 +1,41 @@
+# Agent notes — Grok App
+
+## Read first
+
+1. **`docs/llm-wiki/`** — product rules for agents (i18n, Grok Build catalog).  
+   - [media-delivery.md](docs/llm-wiki/media-delivery.md) — local file previews: loopback HTTP + path resolve (not raw `media://` in product paths)  
+   - [i18n.md](docs/llm-wiki/i18n.md) — all UI strings via `src/i18n/`  
+   - [settings-ia.md](docs/llm-wiki/settings-ia.md) — **settings IA**: tabs, search registry (`settingsCatalog`), deep links; every new setting must be registered  
+   - [dialogs.md](docs/llm-wiki/dialogs.md) — **no `window.confirm` / `prompt` / `alert`**; use in-app dialogs  
+   - [catalog.md](docs/llm-wiki/catalog.md) — models / effort / YOLO  
+   - [automations.md](docs/llm-wiki/automations.md) — automation design (Build `/loop` / scheduler; non-blocking)  
+   - [account.md](docs/llm-wiki/account.md) — official login, membership, quota, heatmap  
+   - [providers.md](docs/llm-wiki/providers.md) — custom relays, agent `GROK_HOME`, editors  
+   - [setup.md](docs/llm-wiki/setup.md) — first-run gate (CLI required, account optional)  
+   - [icons.md](docs/llm-wiki/icons.md) — app dock icons vs tray/status-bar icons (never mix)  
+   - [remote-im.md](docs/llm-wiki/remote-im.md) — **Remote IM** GUI 配置全渠道 · Bridge · Grok Build；goal 见 `docs/plans/GOAL-remote-im.md`  
+   - [maintain.md](docs/llm-wiki/maintain.md) — **open-source maintenance**: Issues triage, PR review, community intake, ship loop, **branch hygiene**
+
+1b. **Release (AI handoff)** — **[docs/llm-wiki/release.md](docs/llm-wiki/release.md)** is the single source for ship steps. Platforms / local build: [docs/BUILD.md](docs/BUILD.md). Window chrome: `tauri.macos.conf.json` (Overlay) vs `tauri.windows.conf.json` (frameless).  
+   - Never tag without `## [X.Y.Z]` in `CHANGELOG.md`.  
+   - GitHub Release body = `scripts/changelog-for-release.py` (**version changes only**; install/`xattr` live in README).  
+   - Do not hand-edit Release notes only on GitHub; change the script + CHANGELOG.  
+   - **Public README surface**: no author promotion, social links, WeChat/X QR codes, contributor avatar galleries, or screenshot showcase sections. Do not reintroduce those after upstream sync.
+
+1c. **Open-source surface** — public docs: `README.md` / `README_EN.md`, `LICENSE`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`. Do not commit secrets, `auth.json`, or local agent homes.
+
+1d. **Brand / independence** — This repo is **Next-AGI-Org/Next-GrokApp**. User-facing docs, CHANGELOG, Release notes, about-page copy, and update URLs must describe **this product** only. Do not frame releases as “synced from upstream”, “removed author promo”, or “sister project of …”. Technical paths (e.g. reading `~/.grok-go/config.json` for import) may remain as implementation detail without product-sister branding.
+
+2. Do **not** hardcode user-facing English/Chinese. Use `createT(locale)` / `t()`.
+
+2b. **Dialogs** — never use `window.confirm` / `window.prompt` / `window.alert` in Tauri UI. Use App `setAppDialog`, `GlassModal`, or the same in-app portal + modal/menu CSS. Prefer existing panel styles (`.cmm__pop`, solid `.menu-panel`, `.modal`); frosted glass is **not** required. Details: [docs/llm-wiki/dialogs.md](docs/llm-wiki/dialogs.md).
+
+3. When adding models or permission modes, update `src/lib/grokCatalog.ts` **and** `docs/llm-wiki/catalog.md`.
+
+3b. Custom providers write `~/.grok-app/agent-home/config.toml` and spawn agent with `GROK_HOME` (independent mode). Do not leave relay keys only in App secrets.
+
+4. Prefer real Grok Build CLI behavior (`grok models`, `--always-approve`, `--effort`).
+
+5. Assistant messages: render markdown (`MarkdownBody`); user messages: gray bubble, no role labels.
+
+6. **Branch hygiene** — after work lands on `main` (merge, squash, or batch integrate), promptly and safely delete finished remote/local branches and idle worktrees. Confirm with `git fetch --prune`, ancestor / `gh pr` / feature-on-main checks; never delete open-PR heads, unique WIP, or worktree-checked-out branches without removing the worktree first. Details: [docs/llm-wiki/maintain.md](docs/llm-wiki/maintain.md#branch-hygiene-merged--finished-work).
