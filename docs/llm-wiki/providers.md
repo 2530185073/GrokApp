@@ -1,0 +1,140 @@
+# Custom providers & agent profile
+
+Product rules for **OpenAI-compatible relays** (CPA / sub2api / OneAPI / self-hosted) and how they reach Grok Build.
+
+## Agent transport (shared with Grok Desktop)
+
+Both Grok App and community **Grok Desktop** drive intelligence the same way:
+
+| Layer | Implementation |
+|-------|----------------|
+| Runtime | **Grok Build CLI** binary (`grok`) |
+| Entry | `grok agent stdio` |
+| Protocol | **ACP** (Agent Client Protocol) JSON-RPC over stdio |
+| Client | Desktop Host (`AcpClient`) — **not** a reimplemented agent brain |
+
+Desktop never reimplements tools/sampling. It is an ACP client + UI shell.
+
+## Agent profile (`GROK_HOME`)
+
+| Session data mode | `GROK_HOME` for spawned agent |
+|-------------------|-------------------------------|
+| `independent` (default) | `~/.grok-app/agent-home` (or `$GROK_APP_HOME/agent-home`) |
+| `shared` | `~/.grok` (CLI default) |
+
+Custom providers are written to **`$GROK_HOME/config.toml`** as `[model.<id>]` sections so the agent can use `base_url` + `api_key` without OAuth fallback.
+
+## Provider model (L2)
+
+| Field | Role |
+|-------|------|
+| `id` | Config section slug (`[model.<id>]`) |
+| `name` | Channel display label (provider card / menu group) |
+| `baseUrl` | OpenAI-compatible root, usually ends with `/v1` |
+| `apiKey` | Required for custom relay; never returned plaintext to UI |
+| `model` | **Active** request body model id (written to config `model = …`) |
+| `models` | Multi-model catalog (`[{id, name}]`); App field `app_models` JSON in TOML (ignored by Grok Build). Each entry has request id + **display name** for composer chip |
+| `efforts` | Reasoning-effort options for this channel (`[{id, name, isDefault}]`); App field `app_efforts` JSON. Composer effort menu uses this on custom route. Empty → Grok `low`/`medium`/`high` fallback |
+| `apiBackend` | Message format: `responses` (default) \| `chat_completions` \| `messages` |
+| `isDefault` | Maps to `[models].default` (set only via **Use** / composer pick activate, not a form checkbox) |
+
+### Presets (add provider)
+
+Add flow opens a **preset gallery** (`providerPresets.ts`):
+
+| Preset | Models | Default efforts |
+|--------|--------|-----------------|
+| **Custom** | empty (user fills) | Grok `low`/`medium`/`high` |
+| **NextAPI** | `grok-4.5` (display **Grok 4.5**) | Grok `low`/`medium`/`high` |
+
+| Preset | Base | Get API Key |
+|--------|------|-------------|
+| NextAPI | `https://api.openai-next.com/v1` (`responses`) | https://api.openai-next.com |
+
+Form shows a **Get API Key** text control under the key field when the channel matches a preset (by id or base host). Opens the URL via `open_external_url`.
+
+CPA / sub2api / grok-go remain generic OpenAI-compatible relays.
+
+## Settings UI (Account → Custom providers)
+
+Left / right split (`ProvidersPanel`):
+
+| Side | Content |
+|------|---------|
+| Left | **Add provider** on top; list of cards. Official Grok card first **only if** signed in / CLI auth / official key; otherwise list starts empty. |
+| Right | Create/edit form when adding or selecting a custom card; official detail when selecting the official card; empty placeholder otherwise. |
+
+Each card has **Use** to activate that route (`providers_activate`). Clicking a card opens detail/edit. No long intro copy, agent-home path, or separate “active route” switcher.
+
+## Route switching (auth isolation)
+
+Grok Build 0.2.x will send **OIDC** when `auth.json` is present — even if the request URL is a custom relay. That produces:
+
+`Unauthorized (401) from https://api.example.com/v1/responses` with `Auth: Oidc`.
+
+Verified working combinations:
+
+| Route | `[models].default` | agent `--model` | agent-home `auth.json` |
+|-------|--------------------|-----------------|------------------------|
+| Custom relay | provider id (`yunyi`) | **provider id** | **removed** (api_key only) |
+| Official | `grok` | catalog id (`grok-4.5`) | **synced** from `~/.grok` |
+
+Host must rebind both sides on every switch and before each ACP spawn (`prepare_route_auth_for_agent` + `agent_spawn_model_id`). Composer catalog `modelId` remains the official selection preference; spawn resolves the channel id separately. **Alternate activate entry:** picking a custom provider row in the composer model menu also calls `providers_activate` (same Host path as Settings **Use**).
+
+## Host commands
+
+| Command | Role |
+|---------|------|
+| `providers_list` | Providers + default (no raw keys); blocking pool |
+| `providers_upsert` | Create/update; empty key keeps previous; recycles warm agents when default/active route changes (`provider_route`) so next send applies without app restart |
+| `providers_remove` | Delete section; recycles warm agents |
+| `providers_set_default` | Set default model id; recycles warm agents |
+| `providers_activate` | Switch official/custom route + rebind auth; recycles warm agents |
+| `providers_ping` | `GET {base}/models` RTT |
+| `providers_list_models` | Fetch remote model ids |
+| `providers_cc_switch_scan` | Read-only scan of local **CC Switch** Grok Build providers |
+| `providers_cc_switch_import` | Import selected CC Switch rows into custom providers |
+| `editors_list` | Detected local IDEs |
+| `open_in_editor` | Open path in chosen editor |
+
+**Live apply (#376):** Do **not** only park the live agent (`session_disconnect`) after provider edits — parked processes keep old OIDC/`config.toml` in memory. Host `recycle_all_agents(..., "provider_route")` after route-affecting writes. Settings UI always clears “Saving…” in `finally` and soft-fails apply errors with a toast (config is already on disk).
+
+## Import from CC Switch (#167)
+
+Settings → Account → Custom providers → **Import from CC Switch**.
+
+| Step | Behavior |
+|------|----------|
+| Detect | Resolve `cc-switch.db` (see paths below); open SQLite **read-only** |
+| Scope | `providers` where `app_type = 'grokbuild'` |
+| Preview | Multi-select list (no full API keys; status badges) |
+| Import | Map TOML → `providers_upsert` into current agent-home `config.toml`; **same id overwrites** (no UI toggle); does not auto-activate route |
+
+### CC Switch data paths (cross-platform)
+
+| Priority | Location |
+|----------|----------|
+| 1 | `GROK_APP_CC_SWITCH_DIR` or `CC_SWITCH_HOME` env (if set and contains db) |
+| 2 | Tauri Store override: `app_config_dir_override` in `app_paths.json` under `com.ccswitch.desktop` |
+| 3 | **Default:** `{user_home}/.cc-switch/cc-switch.db` (macOS / Windows / Linux) |
+| 4 | Windows only: `{HOME}/.cc-switch/cc-switch.db` when Profile default is missing (v3.10.3 legacy) |
+
+Store file locations:
+
+| OS | `app_paths.json` |
+|----|------------------|
+| macOS | `~/Library/Application Support/com.ccswitch.desktop/app_paths.json` |
+| Windows | `%APPDATA%\com.ccswitch.desktop\app_paths.json` |
+| Linux | `${XDG_DATA_HOME:-~/.local/share}/com.ccswitch.desktop/app_paths.json` |
+
+Official CC Switch rows are not imported as custom relays. Proxy-takeover placeholders (`PROXY_MANAGED`, `127.0.0.1:…`) are rejected.
+
+## Security
+
+- UI only sees `hasApiKey`.
+- Logs must redact keys (existing redact paths).
+- Official OAuth (`auth.json`) stays separate from relay keys.
+
+## Sponsorship (L3, future)
+
+Recommended catalog / paid naming sits **above** L2 as templates only. Keys always user-owned. See `docs/分析-Grok-Desktop对照报告.md` §7.
